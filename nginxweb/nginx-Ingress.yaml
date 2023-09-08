@@ -1,0 +1,42 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: myapp-ingress
+  annotations:
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/tags: Environment=dev,Team=test
+    alb.ingress.kubernetes.io/load-balancer-attributes: access_logs.s3.enabled=true,access_logs.s3.bucket=access-log-parsfaa-aps2,access_logs.s3.prefix=myingress
+
+spec:
+  ingressClassName: alb
+  rules:
+    - http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: myapp
+                port: 
+                  number: 80
+          - path: /a/
+            pathType: Prefix
+            backend:
+              service:
+                name: myapp-a
+                port: 
+                  number: 80
+
+          - path: /b/
+            pathType: Prefix
+            backend:
+              service:
+                name: myapp-b
+                port: 
+                  number: 80
+
+
+# while true; do curl -I http://k8s-default-myapping-9f0d4e2031-67850428.ap-southeast-2.elb.amazonaws.com/b/index.html ; sleep 5 ;done    
+
+
+# while true; do curl -s -I http://k8s-game2048-ingress2-90df2227f7-837189714.ap-southeast-2.elb.amazonaws.com | grep HTTP; sleep 5 ;done    

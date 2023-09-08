@@ -1,0 +1,81 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: myapp-a
+  name: nginx-a
+  namespace: default
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: myapp-a
+  strategy:
+    rollingUpdate:
+      maxSurge: 25%
+      maxUnavailable: 25%
+    type: RollingUpdate
+  template:
+    metadata:
+      creationTimestamp: null
+      labels:
+        app: myapp-a
+    spec:
+      containers:
+      - image: nginx:1.19.1
+        imagePullPolicy: Always
+        name: nginx-a
+        command: [ 'nginx','-g','daemon off;' ]
+        volumeMounts:
+            - name: nginx-a
+              mountPath: /usr/share/nginx/html/a
+              readOnly: true
+            - name: nginx-conf
+              mountPath: /etc/nginx/
+              readOnly: true
+      volumes:
+      - name: nginx-a
+        configMap:
+          name: nginx-a
+      - name: nginx-conf
+        configMap:
+          name: nginx-conf
+    
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nginx-a
+data:
+  index.html: |
+    <!DOCTYPE html>
+    <html>
+    <head>
+    <style>
+    body {
+      background-color:red;}
+    </style>
+    </head>
+    <body>
+    <h1> Application-A</h1>
+    <div>=======================</div>
+    </body>
+    </html>
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nginx-conf
+data:
+  nginx.conf: |
+    worker_processes 1;
+    events { worker_connections 1024; }
+    http {
+      server {
+        root /usr/share/nginx/html/;
+        index index.html;
+        server_name localhost;
+        listen 80;
+      }
+    }
