@@ -1,18 +1,19 @@
 #!/bin/bash
-# Description = This bash script > With using eksctl , creates a simple eks cluster with AWS-LB-CTL and sample Ingress and service .
+# Description = This bash script > With using awscli , eksctl , helm , kubectl , and creates a simple eks cluster with AWS-LB-CTL and sample Ingress and service .
 # HowToUse = " % ./run.sh| tee -a output.md "
 # Duration = Around 15 minutes
-# https://kubernetes-sigs.github.io/aws-load-balancer-controller/v2.5/examples/echo_server/
+# https://kubernetes-sigs.github.io/aws-load-balancer-controller/v2.8/examples/echo_server/
 
 ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ###
 ### Variables:
-export REGION=us-east-1
+export REGION=ap-southeast-2
+export CLUSTER_VER=1.29
 export CLUSTER_NAME=awslbc
 export CLUSTER=$CLUSTER_NAME
 export AWS_ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
 export ACC=$AWS_ACCOUNT_ID
 export AWS_DEFAULT_REGION=$REGION
-# export role_name=AmazonEKS_EFS_CSI_DriverRole_$CLUSTER_NAME
+
 
 
 echo " 
@@ -31,10 +32,18 @@ then
 ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ###
 echo " 
 ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ###
- ### 0- Cleanup EFS file system for eks-nfs :
+ ### 0- Cleanup IRSA  :
  "
 # Do Cleanup
 
+kubectl delete -n echoserver ing --all
+kubectl delete -n game-2048 ing --all
+kubectl delete   ing --all
+kubectl delete  svc --all
+sleep 30 
+kubectl delete -f cluster-autoscaler-autodiscover.yaml
+eksctl delete iamserviceaccount --region=$REGION --cluster=$CLUSTER --namespace=kube-system --name=aws-load-balancer-controller 
+kubectl  -n kube-system describe sa aws-load-balancer-controller
 
 exit 1
 fi;
@@ -51,6 +60,7 @@ kind: ClusterConfig
 metadata:
   name: $CLUSTER
   region: $REGION
+  version: "$CLUSTER_VER"
 
 managedNodeGroups:
   - name: mng
@@ -78,12 +88,12 @@ addons:
 iam:
   withOIDC: true
 
-iamIdentityMappings:
-  - arn: arn:aws:iam::$ACC:user/Ali
-    groups:
-      - system:masters
-    username: admin-Ali
-    noDuplicateARNs: true # prevents shadowing of ARNs
+#iamIdentityMappings:
+#  - arn: arn:aws:iam::$ACC:user/Ali
+#    groups:
+#      - system:masters
+#    username: admin-Ali
+#    noDuplicateARNs: true # prevents shadowing of ARNs
 
 cloudWatch:
   clusterLogging:
@@ -109,8 +119,13 @@ kubectl   get crd > crd-0.txt
 ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ###
 echo "
 ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ###
- ### 3- create iamserviceaccount  : 
+ ### 3- Create IRSA  : 
  "
+curl -o iam-policy.json https://raw.githubusercontent.com/kubernetes-sigs/aws-load-balancer-controller/v2.8.2/docs/install/iam_policy.json
+
+aws iam create-policy \
+    --policy-name AWSLoadBalancerControllerIAMPolicy \
+    --policy-document file://iam-policy.json
 
 eksctl create iamserviceaccount \
 --region=$REGION \
@@ -129,7 +144,7 @@ echo "
 ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ###
  ### 4 - Install lbc with helm  : 
  "
-
+helm repo add eks https://aws.github.io/eks-charts
 helm install aws-load-balancer-controller eks/aws-load-balancer-controller \
 -n kube-system \
 --set clusterName=$CLUSTER \
@@ -138,133 +153,81 @@ helm install aws-load-balancer-controller eks/aws-load-balancer-controller \
 --set region=$REGION 
 
 
-kubectl  -n kube-system logs  -l app.kubernetes.io/name=aws-load-balancer-controller | tee -a  lbc_logs-0.log
+kubectl  -n kube-system logs  -l app.kubernetes.io/name=aws-load-balancer-controller 
 
 ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ###
 echo " 
 ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ###
  ### 5- Deploy all the echoserver resources (namespace, service, deployment , ingress) from already checked file  "
-# mkdir echoserver 
-# cd echoserver 
-# wget  https://raw.githubusercontent.com/kubernetes-sigs/aws-load-balancer-controller/v2.4.5/docs/examples/echoservice/echoserver-namespace.yaml 
-# wget  https://raw.githubusercontent.com/kubernetes-sigs/aws-load-balancer-controller/v2.4.5/docs/examples/echoservice/echoserver-service.yaml
-# wget  https://raw.githubusercontent.com/kubernetes-sigs/aws-load-balancer-controller/v2.4.5/docs/examples/echoservice/echoserver-deployment.yaml
-# wget https://raw.githubusercontent.com/kubernetes-sigs/aws-load-balancer-controller/v2.4.5/docs/examples/echoservice/echoserver-ingress.yaml
-# cd ..
-#kubectl apply -f echoserver 
-### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ###
-# Namespace :
-kubectl apply  -f - <<EOF
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: echoserver
-EOF
+
+kubectl apply -f echoserver
+
+
 
 ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ###
-# Deployment :
-
-kubectl apply  -f - <<EOF
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: echoserver
-  namespace: echoserver
-spec:
-  selector:
-    matchLabels:
-      app: echoserver
-  replicas: 1
-  template:
-    metadata:
-      labels:
-        app: echoserver
-    spec:
-      containers:
-      - image: k8s.gcr.io/e2e-test-images/echoserver:2.5
-        imagePullPolicy: Always
-        name: echoserver
-        ports:
-        - containerPort: 8080
-EOF
+echo " 
 ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ###
-# Service :
-kubectl apply  -f - <<EOF
-apiVersion: v1
-kind: Service
-metadata:
-  name: echoserver
-  namespace: echoserver
-spec:
-  ports:
-    - port: 80
-      targetPort: 8080
-      protocol: TCP
-  type: NodePort
-  selector:
-    app: echoserver
-EOF
+ ### 6- Deploy all the echoserver resources (namespace, service, deployment , ingress) from already checked file  "
+
+
+kubectl apply -f game2048
+
+
 
 ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ###
-# Ingress :
-kubectl apply  -f - <<EOF
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: echoserver
-  namespace: echoserver
-  annotations:
-    alb.ingress.kubernetes.io/scheme: internet-facing
-    alb.ingress.kubernetes.io/tags: Environment=dev,Team=test
-spec:
-  ingressClassName: alb
-  rules:
-#    - host: echoserver.example.com
-    - http:
-        paths:
-          - path: /
-            pathType: Exact
-            backend:
-              service:
-                name: echoserver
-                port:
-                  number: 80
-EOF
+echo " 
+### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ###
+ ### 7- Deploy all the echoserver resources (namespace, service, deployment , ingress) from already checked file  "
 
 
-kubectl get -n echoserver deploy,svc,ingress
+kubectl apply -f nginxweb
+
+
+
+### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ###
+echo " 
+### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ###
+ ### 8- Deploy all the echoserver resources (namespace, service, deployment , ingress) from already checked file  "
+
+kubectl apply -f nginx-nlb-svc
 
 ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ###
 echo "
 ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ###
- ### 6- Checking targetgroupbindings , ingress , controller : "
-
-kubectl -n kube-system logs  -l app.kubernetes.io/name=aws-load-balancer-controller > lbc_logs-1.log
-kubectl -n echoserver describe ingress echoserver > ingress-describe.yaml
-kubectl -n echoserver describe   targetgroupbindings > targetgroupbindings-describe.yaml 
-
-### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ###
+ ### 9 - Recording configs and status  "
 
 
+STAT=`date +%s`
+mkdir $STAT
+sleep 30
+cp iam-policy.json $STAT
+kubectl -n kube-system logs  -l app.kubernetes.io/name=aws-load-balancer-controller > $STAT/lbc_logs-1.log
+kubectl -n kube-system get pod  -l app.kubernetes.io/name=aws-load-balancer-controller -o yaml > $STAT/lbc_pod.log
+kubectl  -n kube-system describe sa  aws-load-balancer-controller  > $STAT/aws-load-balancer-controller.yaml
+kubectl get ingress -A -o wide > $STAT/ings.txt
+kubectl get svc -A -o wide > $STAT/svcs.txt
+kubectl describe targetgroupbindings -A > $STAT/tgBindings.yaml 
+kubectl   get crd > $STAT/crd.txt
 
-### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ###
-echo "
-### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ###
- ### 7- updating ingress with adding Access-Log :"
+mkdir $STAT/echoserver
+kubectl  -n echoserver describe ingress echoserver > $STAT/echoserver/ingress.yaml
+kubectl  -n echoserver describe svc > $STAT/echoserver/vc.yaml
+kubectl  -n echoserver describe ep > $STAT/echoserver/ep.yaml
+kubectl  -n echoserver describe pod > $STAT/echoserver/pod.yaml
+kubectl  -n echoserver describe targetgroupbindings > $STAT/echoserver/tgBinding.yaml 
 
-kubectl apply -f echoserver 
+mkdir $STAT/game-2048
+kubectl  -n game-2048 describe ingress echoserver > $STAT/game-2048/ingress.yaml
+kubectl  -n game-2048 describe svc > $STAT/game-2048/svc.yaml
+kubectl  -n game-2048 describe ep > $STAT/game-2048/ep.yaml
+kubectl  -n game-2048 describe ep > $STAT/game-2048/pod.yaml
+kubectl  -n game-2048 describe targetgroupbindings > $STAT/game-2048/tgBinding.yaml 
 
-### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ###
-echo "
-### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ###
- ### 7- Recording , , . . . . :"
-kubectl   get crd > crd-1.txt
+$STAT/default
+kubectl   describe ingress echoserver > $STAT/default/nginxweb_ingress.yaml
+kubectl   describe svc > $STAT/default/svc.yaml
+kubectl   describe pod > $STAT/default/pod.yaml
+kubectl   describe ep > $STAT/default/ep.yaml
+kubectl   describe targetgroupbindings > $STAT/default/tgBinding.yaml 
 
 
-### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ###
-echo "
-### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ###
- ### 11- For creating Nginx-NLB-SVC run 
-     kubectl apply -f  nginx-nlb-svc ; sleep 10 ; kubectl get pod,svc -l app=my-nginx-nlb -o wide
-
-"
