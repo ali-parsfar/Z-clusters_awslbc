@@ -7,6 +7,7 @@ metadata:
     alb.ingress.kubernetes.io/scheme: internet-facing
     alb.ingress.kubernetes.io/tags: Environment=dev,Team=test
     alb.ingress.kubernetes.io/target-group-attributes: stickiness.enabled=true,stickiness.lb_cookie.duration_seconds=60
+    alb.ingress.kubernetes.io/target-type: ip
     # alb.ingress.kubernetes.io/load-balancer-attributes: access_logs.s3.enabled=true,access_logs.s3.bucket=access-log-parsfaa-aps2,access_logs.s3.prefix=myingress
     # alb.ingress.kubernetes.io/subnets: subnet-a, subnet-b, subnet-c
 spec:
