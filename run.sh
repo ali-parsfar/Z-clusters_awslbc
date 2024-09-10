@@ -28,7 +28,6 @@ AWS_ACCOUNT_ID=$AWS_ACCOUNT_ID
 if [[ $1 == "cleanup" ]] ;
 then 
 
-
 ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ###
 echo " 
 ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ###
@@ -40,14 +39,17 @@ kubectl delete -n echoserver ing --all
 kubectl delete -n game-2048 ing --all
 kubectl delete   ing --all
 kubectl delete  svc --all
+
 sleep 30 
 kubectl delete -f cluster-autoscaler-autodiscover.yaml
 eksctl delete iamserviceaccount --region=$REGION --cluster=$CLUSTER --namespace=kube-system --name=aws-load-balancer-controller 
 kubectl  -n kube-system describe sa aws-load-balancer-controller
 
+sleep 30 
+eksctl delete cluster $CLUSTER
+
 exit 1
 fi;
-
 
 ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ###
 echo "
